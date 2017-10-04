@@ -46,7 +46,7 @@ with open(inFile, 'r')as f:
 		pident = blast_hit_parse.group(3)
 		match_len = blast_hit_parse.group(4)
 		bitscore = blast_hit_parse.group(5)
-		if pident >= 90.0 and match_len >= 50: #If a blast hit has > 90% match and > 50 bp length (otherwise, discard)
+		if pident >= 100.0 and match_len >= 75: #If a blast hit has > 100% match and > 75 bp length (otherwise, discard)
 			SeqIDs.append(seqid) 
 			Accessions.append(acc) 
 			Bitscores.append(bitscore) 
