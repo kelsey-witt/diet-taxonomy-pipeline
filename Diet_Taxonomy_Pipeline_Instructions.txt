@@ -1,0 +1,116 @@
+#############################################################################################################
+#                                                                                                           #
+#  Pipeline used in "Integrative analysis of DNA, macroscopic remains and stable isotopes of dog paleofeces #
+#  to reconstruct community diet" by Witt et al., 2020, Scientific Reports.                                 #
+#                                                                                                           #
+#  Developed by Kelsey Witt, to process metagenomic reads to identify possible dietary components using     #
+#  BLAST, MEGAN, and python scripts.                                                                        #
+#                                                                                                           #
+#  Pipeline and all scripts available at https://github.com/kelsey-witt/diet-taxonomy-pipeline             .#
+#                                                                                                           #
+#  Contact with questions: kelsey_witt_dillon@brown.edu                                                     #
+#                                                                                                           #
+#############################################################################################################
+
+Taxonomy Diet Analysis Pipeline
+
+1. Cleaning and de novo Genome Assembly (many alternatives exist for these steps, but these are our methods)
+	a. Remove duplicates using Clumpify
+		clumpify.sh in=nextseq.fq.gz out=clumped.fq.gz dedupe optical
+		-- will read in a gzip file, give it the output file name, dedupe optical is the command 
+	b. Adapter removal using AdapterRemoval
+		AdapterRemoval --file1 in.fastq --minlength 25 --trimns --basename out_trimmed
+		--will read in a fastq file, automatically detect Illumina adapters and remove them, as well as any 
+		reads shorter than the minimum length, and return a trimmed fastq file.
+	c. Hard trim using fastx_trimmer (trims 3 bp off each side): - (Optional Step)
+		fastx_trimmer -f 4 -i read.53clipped.fastq -o read.53clipped.hard.fastq;
+		--will read in a fastq file and trim 3 base pairs off of the 5’ end of each read, and output a trimmed 
+		fastq file.
+	d. Soft trim using fastq_quality_trimmer
+		fastq_quality_trimmer -Q 33 -t 28 -l 50 -i read.53clipped.hard.fastq -o read.53clipped.hard.soft.fastq
+		--will read in a fastq file and trim the read based on a minimum quality score - on each end, it trims 
+		off all the bases with a quality score lower than the threshold (although it ignores low-quality bases 
+		in the middle of reads). It can also be given a length threshold, and will discard any reads shorter 
+		than the minimum supplied. It will output a trimmed fastq file.
+	e. Convert from fastq to fasta
+		perl fastqtofasta.pl infile.fastq
+		--will read in a fastq file and will output a fasta file (essentially removing all the quality 
+		information)
+	f. Assemble using abyss 
+		abyss-pe np=6 k=36 name=Assembly_name se='input_file'
+		--will read in a fasta file and attempt to assemble reads using a given kmer size (k=N), iterating 
+		three times. It will output seven file types:
+			-fasta files (-1.fa and -3.fa - the -3.fasta is the final file to use for future analysis)
+			-sequence overlap graphs (-1.adj, -2.adj, -3.adj), 
+			-path files that define how sequences are assembled (-1.path and -2.path)
+			-unitigs.fa file that links to the -3.fa file
+			-bubble file that identifies gaps between the assembled reads and the reference
+			-indel file that represents possible indels
+			-stats file that summarizes the final assembled read length distribution
+
+2.BLAST Search and Processing
+	a. Search against most recent ncbi nucleotide (nt) blast database on the biocluster, output in archive 
+	format
+		blastn -db /ncbi/blastdb/latest/nt -query input_file -outfmt 11  -out output_file.asn1
+		--will read in the assembled fasta file and your database of choice, and will output BLAST search 
+		results in archival format (retains all information about the genbank entry the read matches).
+	b. Convert to tabular format with a custom set of columns that includes query sequence ID, subject sequence 
+	ID, query length, percent identity, bitscore, taxonomic ID, and scientific name
+		blast_formatter -archive $FILE  -outfmt "6 qseqid sseqid qlen length pident bitscore staxids sscinames" \
+		-out "${NAME}.tab"
+		--will read in the .asn1 file generated from the BLAST search, and will output a tab-delimited file 
+		with the variables of interest as the columns.
+	c. Filter blast results using blast_tax_read_filter_War.py
+		Input files needed are your .tab file from step 2b, the “categories.dmp” and a modified names file, 
+		both from ftp://ftp.ncbi.nlm.nih.gov/pub/taxonomy/. It is recommended that you download new versions 
+		whenever you re-do BLAST analyses, so the databases match well.
+			Categories.dmp is in the zipped taxcat folders, and can be downloaded and then used as-is. 
+			Names.dmp is in the zipped taxdump/taxdump folders, but each taxid has multiple lines with 
+			different formatting, and so some formatting is needed to trim down the file. Run 
+			names_streamliner.py to make names_streamlined.txt.
+				python names_streamliner.py names.dmp
+				--will read in the names.dmp file and remove all entries for each taxonomic ID except for the 
+				one including the term “scientific name”, and will output a names file in the same format, but 
+				with a single line for each taxid.
+			If you download new files, the file locations need to be changed in the python script. The 
+			categories and names files are named as taxid_check_infile and taxnames_infile, respectively
+		python3 blast_tax_read_filter_War.py file.tab <minimum read length, 75 suggested>
+		--will read in the tab-delimited BLAST results file and filter out all reads with a percent identity 
+		less than 100 and a length less than 75 (or whatever you specify), as well as any hits that match to 
+		multiple genera. It will output a csv file of the remaining matches with three columns: read name, 
+		scientific name and bitscore.
+
+3. MEGAN Analysis (using MEGAN6 Community Edition)
+	a. Import results one file at a time
+		File > Import > CSV format
+		Settings: Read Class, Comma-separated, check Taxonomy
+		Keep standard LCA settings, except for Min Support Percent, which should be lowered to 0.05
+		--will read in a csv file including sequence ID, scientific name and bitscore and will plot the 
+		taxonomic identity of each result within the software. Circle size of each taxon is proportional to 
+		the number of hits. The taxonomic level can be adjusted to see what genera, families, etc. are 
+		represented by your data.
+	b. Combine results using File > Compare and select all samples of interest
+		Use "Absolute Counts"
+		--will take all results you select and combine them into one taxonomic identity plot, with read counts
+		for each sample and taxa
+	c. Export taxonomic results
+		Select all taxa of interest (ie within Metazoa and Viridiplantae) with at least two reads across all 
+		samples(can make the cutoff more stringent) and export to a csv file.
+			File > Export > Text (CSV Format)
+			Data to export is taxonName_to_count, count is assigned, separator is tab
+			Output is a csv file of read counts per taxa and sample, with rows being taxa and columns being 
+			samples
+
+4. BLAST Confirmation
+	a. Identify the reads in each sample that matched to a given taxa using pull_read_numbers_blast.py
+		python3 pull_read_numbers_blast.py MEGAN_infile.csv GenusName
+		--will take the csv file generated from step 2c and output all read numbers that matched to the 
+		provided genus.
+	b. Use grep on your blast input file (from step 1f) on the command line to pull out the actual reads. 
+		grep readID input_file.fasta
+		--will search the provided fasta file for the read ID provided and output the line that contains it.
+	c. Search the specific read sequences on web nucleotide BLAST to confirm that the sequence is most similar
+		to the genus of interest and not human/bacterial contamination.
+		(https://blast.ncbi.nlm.nih.gov/Blast.cgi?PROGRAM=blastn&PAGE_TYPE=BlastSearch&LINK_LOC=blasthome).
+		--will take the read sequence you input and search it against the genbank database you select, returning 
+		a list of the closest matches. You can then examine the genbank records directly.
