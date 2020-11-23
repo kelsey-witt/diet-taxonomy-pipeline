@@ -3,7 +3,7 @@
 
 This workflow removes adapters, trims, and assembles raw metagenomic reads, performs a BLAST search of all reads against the nt (nucleotide) database, identifies the taxa present using MEGAN, and verifies the presence of those taxa using BLAST of individual DNA reads. The full workflow is outlined in Diet_Taxonomy_Pipeline_Instructions.txt, and all python scripts written for the workflow are included here.
 
-To see the pipeline for analysis of the microbiome using this data, <link here>.
+The pipeline to analyze microbiome data from this project is available [here](https://github.com/kyarlagadda/paleofecal_microbiome_pipeline/blob/main/README.md).
 
 ### Required Software
 Sequence read processing
